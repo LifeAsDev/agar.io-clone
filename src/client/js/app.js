@@ -110,6 +110,8 @@ var player = {
     screenWidth: global.screen.width,
     screenHeight: global.screen.height,
     target: { x: global.screen.width / 2, y: global.screen.height / 2 },
+    targetX: global.screen.width / 2,
+    targetY: global.screen.height / 2,
 };
 global.player = player;
 
@@ -263,28 +265,37 @@ function setupSocket(socket) {
         "serverTellPlayerMove",
         function (playerData, userData, foodsList, massList, virusList) {
             if (global.playerType == "player") {
-                player.x = playerData.x;
-                player.y = playerData.y;
+                player.targetX = playerData.x;
+                player.targetY = playerData.y;
                 player.hue = playerData.hue;
                 player.massTotal = playerData.massTotal;
                 player.cells = playerData.cells;
+                if (typeof player.x !== "number" || isNaN(player.x))
+                    player.x = player.targetX;
+                if (typeof player.y !== "number" || isNaN(player.y))
+                    player.y = player.targetY;
             }
-            previousUsers = users.map((u) => ({
-                id: u.id,
-                prevCells: u.cells.map((c) => ({
-                    x: c.x,
-                    y: c.y,
-                    radius: c.radius,
-                })),
-            }));
+            users = userData.map((newUser) => {
+                const existingUser = users.find((u) => u.id === newUser.id);
 
-            users = userData.map((user) => {
-                let existing = previousUsers.find((u) => u.id === user.id);
                 return {
-                    ...user,
-                    prevCells: existing ? existing.cells : user.cells,
+                    ...newUser,
+                    prevCells: existingUser
+                        ? existingUser.cells
+                        : newUser.cells,
+                    cells: newUser.cells.map((newCell, i) => {
+                        const existingCell = existingUser?.cells[i];
+                        return {
+                            ...newCell,
+                            renderX: existingCell?.renderX ?? newCell.x,
+                            renderY: existingCell?.renderY ?? newCell.y,
+                            renderRadius:
+                                existingCell?.renderRadius ?? newCell.radius,
+                        };
+                    }),
                 };
             });
+
             lastServerUpdate = Date.now();
 
             /*             users = userData;
@@ -357,12 +368,30 @@ function animloop() {
 function lerp(a, b, t) {
     return a + (b - a) * t;
 }
+let lastFrameTime = Date.now();
+let fpsCounter = 0;
+let lastFpsUpdate = Date.now();
+let currentFps = 0;
 
 function gameLoop() {
     if (global.gameStart) {
         graph.fillStyle = global.backgroundColor;
         let now = Date.now();
-        interpolationFactor = Math.min((now - lastServerUpdate) / 50, 1);
+        let deltaTime = (now - lastFrameTime) / 1000;
+        lastFrameTime = now;
+        // Lógica para contar los FPS
+        fpsCounter++;
+        if (now - lastFpsUpdate >= 1000) {
+            currentFps = fpsCounter;
+            fpsCounter = 0;
+            lastFpsUpdate = now;
+        }
+        // Factor de interpolación o suavizado, ej 0.25
+        const smoothFactor = 0.25;
+        console.log("playerX: " + player.x, player.targetX);
+        player.x = lerp(player.x, player.targetX, smoothFactor);
+        player.y = lerp(player.y, player.targetY, smoothFactor);
+
         graph.fillRect(0, 0, global.screen.width, global.screen.height);
 
         render.drawGrid(global, player, global.screen, graph);
@@ -396,38 +425,35 @@ function gameLoop() {
             let borderColor = "hsl(" + users[i].hue + ", 100%, 45%)";
             let user = users[i];
 
-            for (var j = 0; j < users[i].cells.length; j++) {
-                let currCell = user.cells[j];
-                let prevCell = user.prevCells?.[j];
-                let interpX = prevCell
-                    ? lerp(prevCell.x, currCell.x, interpolationFactor)
-                    : currCell.x;
-                let interpY = prevCell
-                    ? lerp(prevCell.y, currCell.y, interpolationFactor)
-                    : currCell.y;
-                let interpR = prevCell
-                    ? lerp(
-                          prevCell.radius,
-                          currCell.radius,
-                          interpolationFactor
-                      )
-                    : currCell.radius;
+            for (var j = 0; j < user.cells.length; j++) {
+                let cell = user.cells[j];
+                cell.renderX = lerp(
+                    cell.renderX ?? cell.x,
+                    cell.x,
+                    smoothFactor
+                );
+                cell.renderY = lerp(
+                    cell.renderY ?? cell.y,
+                    cell.y,
+                    smoothFactor
+                );
+                cell.renderRadius = lerp(
+                    cell.renderRadius ?? cell.radius,
+                    cell.radius,
+                    0.25
+                );
 
                 cellsToDraw.push({
-                    color: color,
-                    borderColor: borderColor,
-                    mass: users[i].cells[j].mass,
-                    name: users[i].name,
-                    radius: users[i].cells[j].radius,
-                    x: interpX - player.x + global.screen.width / 2,
-                    y: interpY - player.y + global.screen.height / 2,
+                    color,
+                    borderColor,
+                    mass: cell.mass,
+                    name: user.name,
+                    radius: cell.renderRadius,
+                    x: cell.renderX - player.x + global.screen.width / 2,
+                    y: cell.renderY - player.y + global.screen.height / 2,
                 });
             }
         }
-        previousUsers = users.map((u) => ({
-            ...u,
-            cells: u.cells.map((c) => ({ ...c })),
-        }));
 
         cellsToDraw.sort(function (obj1, obj2) {
             return obj1.mass - obj2.mass;
