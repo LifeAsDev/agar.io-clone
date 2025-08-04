@@ -3,6 +3,7 @@ var render = require("./render");
 var ChatClient = require("./chat-client");
 var Canvas = require("./canvas");
 var global = require("./global");
+var ConnectionMonitor = require("./connectionMonitor");
 
 var playerNameInput = document.getElementById("playerNameInput");
 var socket;
@@ -18,6 +19,7 @@ var debug = function (args) {
 if (/Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent)) {
     global.mobile = true;
 }
+let monitor;
 
 function startGame(type) {
     global.playerName = playerNameInput.value
@@ -32,6 +34,8 @@ function startGame(type) {
     document.getElementById("gameAreaWrapper").style.opacity = 1;
     if (!socket) {
         socket = io({ query: "type=" + type });
+        monitor = new ConnectionMonitor(socket);
+
         setupSocket(socket);
     }
     if (!global.animLoopHandle) animloop();
@@ -388,7 +392,6 @@ function gameLoop() {
         }
         // Factor de interpolación o suavizado, ej 0.25
         const smoothFactor = 0.25;
-        console.log("playerX: " + player.x, player.targetX);
         player.x = lerp(player.x, player.targetX, smoothFactor);
         player.y = lerp(player.y, player.targetY, smoothFactor);
 
